@@ -77,6 +77,8 @@ class COCOeval:
         self._paramsEval = {}               # parameters for evaluation
         self.stats = []                     # result summarization
         self.ious = {}                      # ious between all gts and dts
+        self.ignored = 0
+        self.not_ignored = 0
         if not cocoGt is None:
             self.params.imgIds = sorted(cocoGt.getImgIds())
             self.params.catIds = sorted(cocoGt.getCatIds())
@@ -239,6 +241,27 @@ class COCOeval:
         :return: dict (single image results)
         '''
         p = self.params
+
+        '''
+        T = len(p.iouThrs)
+        gtm = np.zeros((T, 0))
+        dtm = np.zeros((T, 0))
+
+        if aRng[1] != 1:
+            return {
+                'image_id': imgId,
+                'category_id': catId,
+                'aRng': aRng,
+                'maxDet': 0,
+                'dtIds': [],
+                'gtIds': [],
+                'dtMatches': dtm,
+                'gtMatches': gtm,
+                'dtScores': [0],
+                'gtIgnore': gtm,
+                'dtIgnore': dtm,
+            }
+        '''
         if p.useCats:
             gt = self._gts[imgId,catId]
             dt = self._dts[imgId,catId]
@@ -248,13 +271,24 @@ class COCOeval:
         if len(gt) == 0 and len(dt) ==0:
             return None
 
+        image_id = imgId
+        img = self.cocoGt.imgs[image_id]
+        img_area = img['height'] * img['width']
+
         for g in gt:
-            if g['ignore'] or (g['area']<aRng[0] or g['area']>aRng[1]):
+            # obj_area = g['area']
+            obj_area = g['area'] / img_area
+            if g['ignore'] or (obj_area < aRng[0] or obj_area > aRng[1]):
                 g['_ignore'] = 1
+                #if not g['ignore']:
+                if aRng[1] == 1:
+                    self.ignored += 1
             else:
                 g['_ignore'] = 0
+                if aRng[1] == 1:
+                    self.not_ignored += 1
 
-        # sort dt highest score first, sort gt ignore last
+            # sort dt highest score first, sort gt ignore last
         gtind = np.argsort([g['_ignore'] for g in gt], kind='mergesort')
         gt = [gt[i] for i in gtind]
         dtind = np.argsort([-d['score'] for d in dt], kind='mergesort')
@@ -296,7 +330,7 @@ class COCOeval:
                     dtm[tind,dind]  = gt[m]['id']
                     gtm[tind,m]     = d['id']
         # set unmatched detections outside of area range to ignore
-        a = np.array([d['area']<aRng[0] or d['area']>aRng[1] for d in dt]).reshape((1, len(dt)))
+        a = np.array([d['area'] / img_area < aRng[0] or d['area'] / img_area > aRng[1] for d in dt]).reshape((1, len(dt)))
         dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.repeat(a,T,0)))
         # store results for given image and category
         return {
@@ -460,10 +494,10 @@ class COCOeval:
             stats = np.zeros((12,))
             stats[0] = _summarize(1)
             stats[1] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2])
-            stats[2] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2])
-            stats[3] = _summarize(1, areaRng='small', maxDets=self.params.maxDets[2])
-            stats[4] = _summarize(1, areaRng='medium', maxDets=self.params.maxDets[2])
-            stats[5] = _summarize(1, areaRng='large', maxDets=self.params.maxDets[2])
+            stats[2] = _summarize(1, iouThr=.75, areaRng='large', maxDets=self.params.maxDets[2])
+            stats[3] = _summarize(1, iouThr=.5, areaRng='small', maxDets=self.params.maxDets[2])
+            stats[4] = _summarize(1, iouThr=.5, areaRng='medium', maxDets=self.params.maxDets[2])
+            stats[5] = _summarize(1, iouThr=.5, areaRng='large', maxDets=self.params.maxDets[2])
             stats[6] = _summarize(0, maxDets=self.params.maxDets[0])
             stats[7] = _summarize(0, maxDets=self.params.maxDets[1])
             stats[8] = _summarize(0, maxDets=self.params.maxDets[2])
@@ -507,7 +541,8 @@ class Params:
         self.iouThrs = np.linspace(.5, 0.95, np.round((0.95 - .5) / .05) + 1, endpoint=True)
         self.recThrs = np.linspace(.0, 1.00, np.round((1.00 - .0) / .01) + 1, endpoint=True)
         self.maxDets = [1, 10, 100]
-        self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 32 ** 2], [32 ** 2, 96 ** 2], [96 ** 2, 1e5 ** 2]]
+        # self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 32 ** 2], [32 ** 2, 96 ** 2], [96 ** 2, 1e5 ** 2]]
+        self.areaRng = [[0 ** 2, 1e5 ** 2], [0.05, 0.99], [0.1, 0.99], [0.2, 0.99]]
         self.areaRngLbl = ['all', 'small', 'medium', 'large']
         self.useCats = 1
 
